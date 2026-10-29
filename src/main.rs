@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Mutex, MutexGuard};
 
 // ------ type Error -----
-#[derive(Degub, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 enum ApiError {
     #[error("memo {0} not found")]
     NotFound(u32),
@@ -13,12 +13,12 @@ enum ApiError {
     Internal,
 }
 
-#[derice(Serialize)]
+#[derive(Serialize)]
 struct ErrorBody {
     error: String,
 }
 
-impl ResponseError for Apierror {
+impl ResponseError for ApiError {
     fn status_code(&self) -> StatusCode {
         match self {
             ApiError::NotFound(_) => StatusCode::NOT_FOUND,
@@ -99,7 +99,7 @@ async fn create_memo(
     data: web::Data<AppState>,
 ) -> Result<HttpResponse, ApiError> {
     let input = input.into_inner();
-    input.validate()?
+    input.validate()?;
 
     let mut store = lock_store(&data)?;
     let memo = Memo {
@@ -122,7 +122,7 @@ async fn update_memo(
     let input = input.into_inner();
     input.validate()?;
 
-    let mut store = data.store(&data)?;
+    let mut store = lock_store(&data)?;
     let memo = store
         .memos
         .iter_mut()
@@ -141,11 +141,11 @@ async fn delete_memo(
         let id = path.into_inner();
         let mut store = lock_store(&data)?;
         let before = store.memos.len();
-        store.memos.retain(|m| m.id ! id);
+        store.memos.retain(|m| m.id != id);
         if store.memos.len() == before {
             return Err(ApiError::NotFound(id));
     }
-        Ok(HttpResponse::NotContent().finish())
+        Ok(HttpResponse::NoContent().finish())
 }
 
 #[actix_web::main]

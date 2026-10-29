@@ -1,0 +1,2 @@
+fn(Json<MemoInput>, Data<AppState>) -> impl std::future::Future<Output = Result<HttpResponse, ApiError>> {create_memo}
+fn(Json<MemoInput>, Data<AppState>) -> impl std::future::Future<Output = Result<HttpResponse, ApiError>> {create_memo}: HttpServiceFactory
