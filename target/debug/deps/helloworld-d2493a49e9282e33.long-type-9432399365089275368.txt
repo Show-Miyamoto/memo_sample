@@ -1,2 +1,0 @@
-fn(actix_web::web::Path<u32>, Data<AppState>) -> impl std::future::Future<Output = Result<HttpResponse, ApiError>> {delete_memo}
-fn(actix_web::web::Path<u32>, Data<AppState>) -> impl std::future::Future<Output = Result<HttpResponse, ApiError>> {delete_memo}: HttpServiceFactory
