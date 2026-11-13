@@ -1,5 +1,6 @@
 use actix_web::{
-    App, HttpResponse, HttpServer, ResponseError, delete, get, http::StatusCode, post, put, web,
+    App, HttpRequest, HttpResponse, HttpServer, ResponseError, delete, error::JsonPayloadError,
+    get, http::StatusCode, post, put, web,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::{Mutex, MutexGuard};
@@ -45,6 +46,15 @@ impl ResponseError for ApiError {
     }
 }
 
+fn json_error_handle(err: JsonPayloadError, _req: &HttpRequest) -> actix_web::Error {
+    eprintln!("json error: {err}"); // Details are recorded only in the error log
+    ApiError::Validation("invalid JSON body".into()).into()
+}
+
+fn path_error_handler(err: PathError, _req: &HttpRequest) -> actix_web::Error {
+    eprintln!("path error: {err}");
+    ApiError::Validation("invalid path parameter".into()).into()
+}
 // ----- Model -----
 #[derive(Serialize, Clone)]
 struct Memo {
