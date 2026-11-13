@@ -1,6 +1,12 @@
-use actix_web::{delete, get, http::StatusCode, post, put, web, App, HttpResponse, HttpServer, ResponseError};
+use actix_web::{
+    App, HttpResponse, HttpServer, ResponseError, delete, get, http::StatusCode, post, put, web,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::{Mutex, MutexGuard};
+
+const MAX_TITLE_LEN: usize = 100;
+const MAX_BODY_LEN: usize = 2000;
+const MAX_MEMOS: usize = 1000;
 
 // ------ type Error -----
 #[derive(Debug, thiserror::Error)]
@@ -9,6 +15,10 @@ enum ApiError {
     NotFound(u32),
     #[error("{0}")]
     Validation(String),
+    #[error("{0}")]
+    LimitReached(String),
+    #[error("unauthorized")]
+    Unauthorized,
     #[error("internal server error")]
     Internal,
 }
@@ -23,6 +33,8 @@ impl ResponseError for ApiError {
         match self {
             ApiError::NotFound(_) => StatusCode::NOT_FOUND,
             ApiError::Validation(_) => StatusCode::BAD_REQUEST,
+            ApiError::LimitReached(_) => StatusCode::CONFLICT,
+            ApiError::Unauthorized => StatusCode::UNAUTHORIZED,
             ApiError::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -47,10 +59,31 @@ struct MemoInput {
     body: String,
 }
 
+fn contains_bad_control(s: &str, allow_whitespace: bool) -> bool {
+    s.chars()
+        .any(|c| c.is_control() && !(allow_whitespace && matches!(c, '\n' | '\r' | '\t')))
+}
 impl MemoInput {
     fn validate(&self) -> Result<(), ApiError> {
-        if self.title.trim().is_empty() {
+        let title = self.title.trim();
+        if title.is_empty() {
             return Err(ApiError::Validation("title must not be empty".into()));
+        }
+        // count by the number of characters, not the number of bytes
+        if title.chars().count() > MAX_TITLE_LEN {
+            return Err(ApiError::Validation(format!(
+                "title must be at most {MAX_TITLE_LEN} characters"
+            )));
+        }
+        if self.body.chars().count() > MAX_BODY_LEN {
+            return Err(ApiError::Validation(format!(
+                "body must be at most {MAX_BODY_LEN} characters"
+            )));
+        }
+        if contains_bad_control(&self.title, false) || contains_bad_control(&self.body, true) {
+            return Err(ApiError::Validation(
+                "control characters are not allowed".into(),
+            ));
         }
         Ok(())
     }
@@ -71,9 +104,8 @@ fn lock_store(status: &AppState) -> Result<MutexGuard<'_, Store>, ApiError> {
 }
 
 // ----- Handler -----
-
 #[get("/memos")]
-async fn list_memos(data:web::Data<AppState>) -> Result<HttpResponse, ApiError> {
+async fn list_memos(data: web::Data<AppState>) -> Result<HttpResponse, ApiError> {
     let store = lock_store(&data)?;
     Ok(HttpResponse::Ok().json(&store.memos))
 }
@@ -82,7 +114,7 @@ async fn list_memos(data:web::Data<AppState>) -> Result<HttpResponse, ApiError> 
 async fn get_memo(
     path: web::Path<u32>,
     data: web::Data<AppState>,
-    ) -> Result<HttpResponse, ApiError> {
+) -> Result<HttpResponse, ApiError> {
     let id = path.into_inner();
     let store = lock_store(&data)?;
     let memo = store
@@ -101,13 +133,18 @@ async fn create_memo(
     let input = input.into_inner();
     input.validate()?;
 
+    // Maximum Number of Records and Measures to Prevent ID Overflow
     let mut store = lock_store(&data)?;
+    if store.memos.len() >= MAX_MEMOS {
+        return Err(ApiError::LimitReached("memo limit reached".into()));
+    }
+    let id = store.next_id;
+    store.next_id = id.checked_add(1).ok_or(ApiError::Internal)?;
     let memo = Memo {
-        id: store.next_id,
+        id,
         title: input.title,
         body: input.body,
     };
-    store.next_id += 1;
     store.memos.push(memo.clone());
     Ok(HttpResponse::Created().json(memo))
 }
@@ -135,17 +172,17 @@ async fn update_memo(
 
 #[delete("/memos/{id}")]
 async fn delete_memo(
-    path: web::Path<u32>, 
+    path: web::Path<u32>,
     data: web::Data<AppState>,
 ) -> Result<HttpResponse, ApiError> {
-        let id = path.into_inner();
-        let mut store = lock_store(&data)?;
-        let before = store.memos.len();
-        store.memos.retain(|m| m.id != id);
-        if store.memos.len() == before {
-            return Err(ApiError::NotFound(id));
+    let id = path.into_inner();
+    let mut store = lock_store(&data)?;
+    let before = store.memos.len();
+    store.memos.retain(|m| m.id != id);
+    if store.memos.len() == before {
+        return Err(ApiError::NotFound(id));
     }
-        Ok(HttpResponse::NoContent().finish())
+    Ok(HttpResponse::NoContent().finish())
 }
 
 #[actix_web::main]

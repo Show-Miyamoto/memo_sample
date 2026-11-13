@@ -547,15 +547,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 
 [[package]]
-name = "helloworld"
-version = "0.1.0"
-dependencies = [
- "actix-web",
- "serde",
- "thiserror",
-]
-
-[[package]]
 name = "http"
 version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -778,6 +769,15 @@ name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
+
+[[package]]
+name = "memo-api"
+version = "0.1.0"
+dependencies = [
+ "actix-web",
+ "serde",
+ "thiserror",
+]
 
 [[package]]
 name = "mime"
