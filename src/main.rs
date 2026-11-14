@@ -4,6 +4,7 @@ use actix_web::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::{Mutex, MutexGuard};
+use actix_web::middleware::DefaultHeaders;
 
 const MAX_TITLE_LEN: usize = 100;
 const MAX_BODY_LEN: usize = 2000;
@@ -209,6 +210,15 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(state.clone())
+            .app_data(json_config)
+            .app_data(path_config)
+            .warp(
+                DefaultHeaders::new()
+                    .add(("X-Content-Type-Options", "nosniff"))
+                    .add(("X-Frame-Options", "DENY"))
+                    .add(("Referrer-Policy", "no-referrer"))
+                    .add(("Cache-Control", "no-store")),
+                )
             .service(list_memos)
             .service(get_memo)
             .service(create_memo)
