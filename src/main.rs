@@ -11,6 +11,7 @@ use actix_web::{
 use subtle::ConstantTimeEq;
 use serde::{Deserialize, Serialize};
 use std::sync::{Mutex, MutexGuard};
+use actix_governor::{Governor, GovernorConfigBuilder};
 
 const MAX_TITLE_LEN: usize = 100;
 const MAX_BODY_LEN: usize = 2000;
@@ -233,6 +234,12 @@ async fn delete_memo(
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    let governor_conf = GovernorConfigBuilder::default()
+        .seconds_per_request(1)
+        .burst_size(10)
+        .finish()
+        .expect("invalid governor config");
+
     let api_key = std::env::var("API_KEY").expect("API_KEY must be set");
     if api_key.len() < 32 {
         panic!("API_KEY must be at be least 32 charactes");
