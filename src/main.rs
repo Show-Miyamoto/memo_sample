@@ -2,7 +2,6 @@ use actix_web::{
     App, HttpRequest, HttpResponse, HttpServer, ResponseError, delete,
     error::{JsonPayloadError, PathError},
     get,
-    http::StatusCode,
     body::{BoxBody, MessageBody},
     dev::{ServiceRequest, ServiceResponse},
     middleware::{from_fn, DefaultHeaders, Next},
@@ -12,6 +11,8 @@ use subtle::ConstantTimeEq;
 use serde::{Deserialize, Serialize};
 use std::sync::{Mutex, MutexGuard};
 use actix_governor::{Governor, GovernorConfigBuilder};
+use actix_cors::Cors;
+use actix_web::http::{StatusCode, header};
 
 const MAX_TITLE_LEN: usize = 100;
 const MAX_BODY_LEN: usize = 2000;
@@ -234,12 +235,6 @@ async fn delete_memo(
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    let governor_conf = GovernorConfigBuilder::default()
-        .seconds_per_request(1)
-        .burst_size(10)
-        .finish()
-        .expect("invalid governor config");
-
     let api_key = std::env::var("API_KEY").expect("API_KEY must be set");
     if api_key.len() < 32 {
         panic!("API_KEY must be at be least 32 charactes");
@@ -253,6 +248,11 @@ async fn main() -> std::io::Result<()> {
         }),
     });
 
+    let governor_conf = GovernorConfigBuilder::default()
+        .seconds_per_request(1)
+        .burst_size(10)
+        .finish()
+        .expect("invalid governor config");
     println!("listening on http://127.0.0.1:8080");
 
     HttpServer::new(move || {
@@ -261,17 +261,29 @@ async fn main() -> std::io::Result<()> {
             .error_handler(json_error_handle);
         let path_config = web::PathConfig::default().error_handler(path_error_handler);
         
+        let cors = Cors::default()
+            .allowed_origin("http://localhost:3000")
+ .allowed_methods(["GET", "POST", "PUT", "DELETE"])
+            .allowed_header(header::CONTENT_TYPE)
+            .allowed_header("x-api-key")
+            .max_age(3600);
+        
         App::new()
             .app_data(state.clone())
             .app_data(api_key.clone())
             .app_data(json_config)
             .app_data(path_config)
             .wrap(from_fn(api_key_auth)) // The element wrapperd first is on the inside
+            .wrap(Governor::new(&governor_conf))
+            .wrap(cors)
             .wrap(
                 DefaultHeaders::new()
                     .add(("X-Content-Type-Options", "nosniff"))
                     .add(("X-Frame-Options", "DENY"))
-                    .add(("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'"))
+                    .add((
+                        "Content-Security-Policy",
+                        "default-src 'none'; frame-ancestors 'none'",
+                    ))
                     .add(("Referrer-Policy", "no-referrer"))
                     .add(("Cache-Control", "no-store")),
                 )
