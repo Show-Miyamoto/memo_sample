@@ -8,3 +8,5 @@ actix-web ="4"
 serde = { version = "1", features = ["derive"] }
 thiserror = "1"
 subtle = "2"
+actix-governor = "0.10.0"
+actix-cors = "0.7.2"
