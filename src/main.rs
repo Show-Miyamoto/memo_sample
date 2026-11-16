@@ -1,10 +1,16 @@
 use actix_web::{
-    App, HttpRequest, HttpResponse, HttpServer, ResponseError, delete, error::JsonPayloadError,
-    get, http::StatusCode, post, put, web,
+    App, HttpRequest, HttpResponse, HttpServer, ResponseError, delete,
+    error::{JsonPayloadError, PathError},
+    get,
+    http::StatusCode,
+    body::{BoxBody, MessageBody},
+    dev::{ServiceRequest, ServiceResponse},
+    middleware::{from_fn, DefaultHeaders, Next},
+    post, put, web,
 };
+use subtle::ConstantTimeEq;
 use serde::{Deserialize, Serialize};
 use std::sync::{Mutex, MutexGuard};
-use actix_web::middleware::DefaultHeaders;
 
 const MAX_TITLE_LEN: usize = 100;
 const MAX_BODY_LEN: usize = 2000;
@@ -109,9 +115,38 @@ struct AppState {
     store: Mutex<Store>,
 }
 
+struct ApiKey {
+    value: String,
+}
+
 // Convert a lock acquisition failure (poisoned) to an Apierror::Internal
 fn lock_store(status: &AppState) -> Result<MutexGuard<'_, Store>, ApiError> {
     status.store.lock().map_err(|_| ApiError::Internal)
+}
+
+// Key retenion and authentication middleware
+async fn api_key_auth(
+    req: ServiceRequest,
+    next: Next<impl MessageBody + 'static>,
+) -> Result<ServiceResponse<BoxBody>, actix_web::Error> {
+    let expected = match req.app_data::<web::Data<ApiKey>>() {
+        Some(k) => k,
+        None => return Ok(req.into_response(ApiError::Internal.error_response())),
+    };
+
+    let provided = req
+        .headers()
+        .get("X-API-Key")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    // 
+    let ok: bool = provided.as_bytes().ct_eq(expected.value.as_bytes()).into();
+    if !ok {
+        return Ok(req.into_response(ApiError::Unauthorized.error_response()));
+    }
+
+    Ok(next.call(req).await?.map_into_boxed_body())
 }
 
 // ----- Handler -----
@@ -198,6 +233,12 @@ async fn delete_memo(
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    let api_key = std::env::var("API_KEY").expect("API_KEY must be set");
+    if api_key.len() < 32 {
+        panic!("API_KEY must be at be least 32 charactes");
+    }
+    let api_key = web::Data::new(ApiKey{ value: api_key });
+
     let state = web::Data::new(AppState {
         store: Mutex::new(Store {
             memos: Vec::new(),
@@ -208,14 +249,22 @@ async fn main() -> std::io::Result<()> {
     println!("listening on http://127.0.0.1:8080");
 
     HttpServer::new(move || {
+        let json_config = web::JsonConfig::default()
+            .limit(4096)
+            .error_handler(json_error_handle);
+        let path_config = web::PathConfig::default().error_handler(path_error_handler);
+        
         App::new()
             .app_data(state.clone())
+            .app_data(api_key.clone())
             .app_data(json_config)
             .app_data(path_config)
-            .warp(
+            .wrap(from_fn(api_key_auth)) // The element wrapperd first is on the inside
+            .wrap(
                 DefaultHeaders::new()
                     .add(("X-Content-Type-Options", "nosniff"))
                     .add(("X-Frame-Options", "DENY"))
+                    .add(("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'"))
                     .add(("Referrer-Policy", "no-referrer"))
                     .add(("Cache-Control", "no-store")),
                 )
