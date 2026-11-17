@@ -1,2 +1,5 @@
 /target
 .env
+cert.pem
+key.pem
+.env
